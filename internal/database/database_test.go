@@ -5,7 +5,6 @@ import (
 	"log"
 	"testing"
 	"time"
-
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
 	"github.com/testcontainers/testcontainers-go/wait"
@@ -50,7 +49,7 @@ func mustStartPostgresContainer() (func(context.Context) error, error) {
 	host = dbHost
 	port = dbPort.Port()
 
-	return dbContainer.Terminate, err
+    return dbContainer.Terminate, err
 }
 
 func TestMain(m *testing.M) {

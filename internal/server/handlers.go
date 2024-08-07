@@ -8,6 +8,7 @@ import (
     "LeetTracker/internal/utils/leetcode"
     "LeetTracker/auth"
     "log"
+    "strconv"
 )
 
 type Product struct {
@@ -123,4 +124,103 @@ func (s *Server) InvalidateLeetCodeCacheHandler(w http.ResponseWriter, r *http.R
     }
     w.WriteHeader(http.StatusOK)
     w.Write([]byte("LeetCode problems cache successfully invalidated"))
+}
+
+func (s *Server) GetListItemsHandler(w http.ResponseWriter, r *http.Request) {
+    userID := r.Context().Value(auth.UserIDKey).(string)
+    listID, err := strconv.Atoi(mux.Vars(r)["id"])
+    if err != nil {
+        http.Error(w, "Invalid list ID", http.StatusBadRequest)
+        return
+    }
+
+    list, err := s.db.GetListByID(listID, userID)
+    if err != nil {
+        http.Error(w, "Error retrieving list", http.StatusInternalServerError)
+        return
+    }
+    if list == nil {
+        http.Error(w, "List not found or access denied", http.StatusNotFound)
+        return
+    }
+
+    items, err := s.db.GetListItems(listID)
+    if err != nil {
+        http.Error(w, "Failed to get list items", http.StatusInternalServerError)
+        return
+    }
+
+    json.NewEncoder(w).Encode(items)
+}
+
+
+func (s *Server) CreateListHandler(w http.ResponseWriter, r *http.Request) {
+    userID := r.Context().Value(auth.UserIDKey).(string)
+    
+    //create user if non existent
+    err := s.db.EnsureUserExists(userID)
+    if err != nil {
+        log.Printf("Error ensuring user exists: %v", err)
+        http.Error(w, "Failed to create list", http.StatusInternalServerError)
+        return
+    }
+
+    var req struct {
+        Name string `json:"name"`
+    }
+    if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+        http.Error(w, err.Error(), http.StatusBadRequest)
+        return
+    }
+
+    listID, err := s.db.CreateList(userID, req.Name)
+    if err != nil {
+        log.Printf("Error creating list: %v", err)
+        http.Error(w, "Failed to create list", http.StatusInternalServerError)
+        return
+    }
+
+    json.NewEncoder(w).Encode(map[string]int{"list_id": listID})
+}
+
+func (s *Server) GetLeetCodeProblemsHandler(w http.ResponseWriter, r *http.Request) {
+    pageStr := r.URL.Query().Get("page")
+    pageSizeStr := r.URL.Query().Get("pageSize")
+
+    page, err := strconv.Atoi(pageStr)
+    if err != nil || page < 1 {
+        page = 1
+    }
+
+    pageSize, err := strconv.Atoi(pageSizeStr)
+    if err != nil || pageSize < 1 || pageSize > 100 {
+        pageSize = 20 
+    }
+
+    problems, totalCount, err := s.db.GetLeetCodeProblems(page, pageSize)
+    if err != nil {
+        log.Printf("Error fetching LeetCode problems: %v", err)
+        http.Error(w, "Failed to fetch LeetCode problems", http.StatusInternalServerError)
+        return
+    }
+
+    //total pages
+    totalPages := (totalCount + pageSize - 1) / pageSize
+
+    response := struct {
+        Problems   []leetcode.Problem `json:"problems"`
+        TotalCount int                `json:"totalCount"`
+        Page       int                `json:"page"`
+        PageSize   int                `json:"pageSize"`
+        TotalPages int                `json:"totalPages"`
+    }{
+        Problems:   problems,
+        TotalCount: totalCount,
+        Page:       page,
+        PageSize:   pageSize,
+        TotalPages: totalPages,
+    }
+
+    w.Header().Set("Content-Type", "application/json")
+    json.NewEncoder(w).Encode(response)
 }

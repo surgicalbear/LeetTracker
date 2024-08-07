@@ -19,4 +19,8 @@ func RegisterRoutes(r *mux.Router, s *Server, jwtMiddleware func(http.Handler) h
     r.HandleFunc("/fetch-leetcode-problems", s.FetchLeetCodeProblemsHandler).Methods("GET")
     //redis
     r.HandleFunc("/invalidate-leetcode-cache", s.InvalidateLeetCodeCacheHandler).Methods("POST")
+    //Lists
+    r.Handle("/lists", jwtMiddleware(auth.UserIDMiddleware(http.HandlerFunc(s.CreateListHandler)))).Methods("POST")
+    r.Handle("/lists/{id}/items", jwtMiddleware(auth.UserIDMiddleware(http.HandlerFunc(s.GetListItemsHandler)))).Methods("GET")
+    r.HandleFunc("/leetcode-problems", s.GetLeetCodeProblemsHandler).Methods("GET")
 }
