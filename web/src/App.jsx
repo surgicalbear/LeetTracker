@@ -1,31 +1,13 @@
+import "@mantine/core/styles.css";
+import { MantineProvider } from "@mantine/core";
+import { ColorSchemeToggle } from "./ColorSchemeTheme/ColorSchemeToggle";
 import React from "react";
-import { useAuth0 } from "@auth0/auth0-react";
-import { Route, Routes } from "react-router-dom";
-import { AuthenticationGuard } from "./components/AuthenticationGuard";
-import Home from "./components/Home";
-import LoggedIn from "./components/LoggedIn";
+import Router from "./Router"
 
-function App() {
-  const { isLoading } = useAuth0();
-
-  if (isLoading) {
-    return (
-      <div className="page-layout">
-        Loading...
-      </div>
-    );
-  }
-
+export default function App() {
   return (
-    <Routes>
-      <Route path="/" element={<Home />} />
-      <Route path="/home" element={<Home />} />
-      <Route
-        path="/protected"
-        element={<AuthenticationGuard element={<LoggedIn />} />}
-      />
-    </Routes>
+    <MantineProvider theme='dark'>
+      <Router />
+    </MantineProvider>
   );
 }
-
-export default App;

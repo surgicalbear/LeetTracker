@@ -224,3 +224,109 @@ func (s *Server) GetLeetCodeProblemsHandler(w http.ResponseWriter, r *http.Reque
     w.Header().Set("Content-Type", "application/json")
     json.NewEncoder(w).Encode(response)
 }
+
+func (s *Server) SearchProblemsHandler(w http.ResponseWriter, r *http.Request) {
+    query := r.URL.Query().Get("q")
+    if query == "" {
+        http.Error(w, "Search query is required", http.StatusBadRequest)
+        return
+    }
+
+    problems, err := s.db.SearchProblems(query)
+    if err != nil {
+        log.Printf("Error searching problems: %v", err)
+        http.Error(w, "Failed to search problems", http.StatusInternalServerError)
+        return
+    }
+
+    w.Header().Set("Content-Type", "application/json")
+    json.NewEncoder(w).Encode(problems)
+}
+
+func (s *Server) AddProblemToListHandler(w http.ResponseWriter, r *http.Request) {
+    userID := r.Context().Value(auth.UserIDKey).(string)
+
+    var req struct {
+        ListID    int `json:"list_id"`
+        ProblemID int `json:"problem_id"`
+    }
+    if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+        http.Error(w, err.Error(), http.StatusBadRequest)
+        return
+    }
+
+    // Check if the list belongs to the user
+    list, err := s.db.GetListByID(req.ListID, userID)
+    if err != nil {
+        log.Printf("Error checking list ownership: %v", err)
+        http.Error(w, "Failed to add problem to list", http.StatusInternalServerError)
+        return
+    }
+    if list == nil {
+        http.Error(w, "List not found or access denied", http.StatusNotFound)
+        return
+    }
+
+    err = s.db.AddProblemToList(req.ListID, req.ProblemID)
+    if err != nil {
+        log.Printf("Error adding problem to list: %v", err)
+        http.Error(w, "Failed to add problem to list", http.StatusInternalServerError)
+        return
+    }
+
+    w.WriteHeader(http.StatusOK)
+}
+
+func (s *Server) DeleteListHandler(w http.ResponseWriter, r *http.Request) {
+    userID := r.Context().Value(auth.UserIDKey).(string)
+    
+    vars := mux.Vars(r)
+    listID, err := strconv.Atoi(vars["id"])
+    if err != nil {
+        http.Error(w, "Invalid list ID", http.StatusBadRequest)
+        return
+    }
+
+    err = s.db.DeleteList(listID, userID)
+    if err != nil {
+        log.Printf("Error deleting list: %v", err)
+        http.Error(w, "Failed to delete list", http.StatusInternalServerError)
+        return
+    }
+
+    w.WriteHeader(http.StatusOK)
+}
+
+func (s *Server) RemoveProblemFromListHandler(w http.ResponseWriter, r *http.Request) {
+    userID := r.Context().Value(auth.UserIDKey).(string)
+
+    var req struct {
+        ListID    int `json:"list_id"`
+        ProblemID int `json:"problem_id"`
+    }
+    if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+        http.Error(w, err.Error(), http.StatusBadRequest)
+        return
+    }
+
+    // Check if the list belongs to the user
+    list, err := s.db.GetListByID(req.ListID, userID)
+    if err != nil {
+        log.Printf("Error checking list ownership: %v", err)
+        http.Error(w, "Failed to remove problem from list", http.StatusInternalServerError)
+        return
+    }
+    if list == nil {
+        http.Error(w, "List not found or access denied", http.StatusNotFound)
+        return
+    }
+
+    err = s.db.RemoveProblemFromList(req.ListID, req.ProblemID)
+    if err != nil {
+        log.Printf("Error removing problem from list: %v", err)
+        http.Error(w, "Failed to remove problem from list", http.StatusInternalServerError)
+        return
+    }
+
+    w.WriteHeader(http.StatusOK)
+}

@@ -27,10 +27,13 @@ type Service interface {
     GetListByID(listID int, userID string) (*List, error)
     GetListItems(listID int) ([]ListItem, error)
     CreateList(userID, name string) (int, error)
-
     EnsureUserExists(userID string) error
     UserExists(userID string) (bool, error)
     GetLeetCodeProblems(page, pageSize int) ([]leetcode.Problem, int, error)
+    SearchProblems(query string) ([]leetcode.Problem, error)
+    AddProblemToList(listID int, problemID int) error
+    DeleteList(listID int, userID string) error
+    RemoveProblemFromList(listID int, problemID int) error
 }
 
 type service struct {
@@ -337,4 +340,90 @@ func (s *service) GetLeetCodeProblems(page, pageSize int) ([]leetcode.Problem, i
     return problems, totalCount, nil
 }
 
+func (s *service) SearchProblems(query string) ([]leetcode.Problem, error) {
+    rows, err := s.db.Query(`
+        SELECT frontend_id, title, difficulty, acceptance_rate, is_premium, url
+        FROM leetcode_problems
+        WHERE LOWER(title) LIKE LOWER($1)
+        ORDER BY 
+            CASE 
+                WHEN LOWER(title) = LOWER($2) THEN 1
+                WHEN LOWER(title) LIKE LOWER($2 || '%') THEN 2
+                ELSE 3
+            END,
+            LENGTH(title)
+        LIMIT 10
+    `, "%"+query+"%", query)
+    if err != nil {
+        return nil, fmt.Errorf("failed to search problems: %v", err)
+    }
+    defer rows.Close()
 
+    var problems []leetcode.Problem
+    for rows.Next() {
+        var p leetcode.Problem
+        err := rows.Scan(&p.FrontendID, &p.Title, &p.Difficulty, &p.AcceptanceRate, &p.IsPremium, &p.URL)
+        if err != nil {
+            return nil, fmt.Errorf("failed to scan problem: %v", err)
+        }
+        problems = append(problems, p)
+    }
+
+    if err = rows.Err(); err != nil {
+        return nil, fmt.Errorf("error iterating over problems: %v", err)
+    }
+
+    return problems, nil
+}
+
+func (s *service) AddProblemToList(listID int, problemID int) error {
+    _, err := s.db.Exec(`
+        INSERT INTO list_items (list_id, problem_id)
+        VALUES ($1, $2)
+        ON CONFLICT (list_id, problem_id) DO NOTHING
+    `, listID, problemID)
+    if err != nil {
+        return fmt.Errorf("failed to add problem to list: %v", err)
+    }
+    return nil
+}
+
+func (s *service) DeleteList(listID int, userID string) error {
+    result, err := s.db.Exec(`
+        DELETE FROM lists
+        WHERE id = $1 AND user_id = $2
+    `, listID, userID)
+    if err != nil {
+        return fmt.Errorf("failed to delete list: %v", err)
+    }
+    
+    rowsAffected, err := result.RowsAffected()
+    if err != nil {
+        return fmt.Errorf("error checking rows affected: %v", err)
+    }
+    if rowsAffected == 0 {
+        return fmt.Errorf("no list found with id %d for user %s", listID, userID)
+    }
+    
+    return nil
+}
+
+func (s *service) RemoveProblemFromList(listID int, problemID int) error {
+    result, err := s.db.Exec(`
+        DELETE FROM list_items
+        WHERE list_id = $1 AND problem_id = $2
+    `, listID, problemID)
+    if err != nil {
+        return fmt.Errorf("failed to remove problem from list: %v", err)
+    }
+    
+    rowsAffected, err := result.RowsAffected()
+    if err != nil {
+        return fmt.Errorf("error checking rows affected: %v", err)
+    }
+    if rowsAffected == 0 {
+        return fmt.Errorf("problem %d not found in list %d", problemID, listID)
+    }
+    
+    return nil
+}
