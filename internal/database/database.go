@@ -26,7 +26,8 @@ type Service interface {
     //List
     GetListByID(listID int, userID string) (*List, error)
     GetListItems(listID int) ([]ListItem, error)
-    CreateList(userID, name string) (int, error)
+    CreateList(userID string, list *List) (int, error)
+    GetUserLists(userID string) ([]List, error)
     EnsureUserExists(userID string) error
     UserExists(userID string) (bool, error)
     GetLeetCodeProblems(page, pageSize int) ([]leetcode.Problem, int, error)
@@ -34,6 +35,7 @@ type Service interface {
     AddProblemToList(listID int, problemID int) error
     DeleteList(listID int, userID string) error
     RemoveProblemFromList(listID int, problemID int) error
+    UpdateProblemCompletionStatus(listItemID int, completed bool) error
 }
 
 type service struct {
@@ -41,11 +43,17 @@ type service struct {
 }
 
 type List struct {
-    ID        int       `json:"id"`
-    UserID    string    `json:"user_id"`
-    Name      string    `json:"name"`
-    CreatedAt time.Time `json:"created_at"`
+    ID            int       `json:"id"`
+    UserID        string    `json:"user_id"`
+    Name          string    `json:"name"`
+    Description   string    `json:"description"`
+    Tags          string    `json:"tags"`
+    Difficulty    string    `json:"difficulty"`
+    EstimatedTime string    `json:"estimated_time"`
+    Notes         string    `json:"notes"`
+    CreatedAt     time.Time `json:"created_at"`
 }
+
 
 type ListItem struct {
     ID                int       `json:"id"`
@@ -53,7 +61,11 @@ type ListItem struct {
     ProblemID         int       `json:"problem_id"`
     ProblemTitle      string    `json:"problem_title"`
     ProblemDifficulty string    `json:"problem_difficulty"`
+    AcceptanceRate    float64   `json:"acceptance_rate"`
+    IsPremium         bool      `json:"is_premium"`
+    URL               string    `json:"url"`
     AddedAt           time.Time `json:"added_at"`
+    Completed         bool      `json:"completed"`
 }
 
 var (
@@ -224,56 +236,62 @@ func (s *service) insertBatch(problems []leetcode.Problem) error {
 func (s *service) GetListByID(listID int, userID string) (*List, error) {
     var list List
     err := s.db.QueryRow(`
-        SELECT id, name, created_at
+        SELECT id, user_id, name, description, tags, difficulty, estimated_time, notes, created_at
         FROM lists
         WHERE id = $1 AND user_id = $2
-    `, listID, userID).Scan(&list.ID, &list.Name, &list.CreatedAt)
+    `, listID, userID).Scan(&list.ID, &list.UserID, &list.Name, &list.Description, &list.Tags, &list.Difficulty, &list.EstimatedTime, &list.Notes, &list.CreatedAt)
+    
     if err != nil {
         if err == sql.ErrNoRows {
+            log.Println("No list found for the given id and user")
             return nil, nil
         }
+        log.Printf("Error querying list: %v", err)
         return nil, err
     }
     return &list, nil
 }
 
-func (s *service) GetListItems(listID int) ([]ListItem, error) {
-    rows, err := s.db.Query(`
-        SELECT li.id, li.problem_id, lp.title, lp.difficulty, li.added_at
-        FROM list_items li
-        JOIN leetcode_problems lp ON li.problem_id = lp.frontend_id
-        WHERE li.list_id = $1
-        ORDER BY li.added_at DESC
-    `, listID)
-    if err != nil {
-        return nil, err
-    }
-    defer rows.Close()
-
-    var items []ListItem
-    for rows.Next() {
-        var li ListItem
-        err := rows.Scan(&li.ID, &li.ProblemID, &li.ProblemTitle, &li.ProblemDifficulty, &li.AddedAt)
-        if err != nil {
-            return nil, err
-        }
-        li.ListID = listID
-        items = append(items, li)
-    }
-    return items, nil
-}
-
-func (s *service) CreateList(userID, name string) (int, error) {
+func (s *service) CreateList(userID string, list *List) (int, error) {
     var listID int
     err := s.db.QueryRow(`
-        INSERT INTO lists (user_id, name)
-        VALUES ($1, $2)
+        INSERT INTO lists (user_id, name, description, tags, difficulty, estimated_time, notes)
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
         RETURNING id
-    `, userID, name).Scan(&listID)
+    `, userID, list.Name, list.Description, list.Tags, list.Difficulty, list.EstimatedTime, list.Notes).Scan(&listID)
     if err != nil {
         return 0, fmt.Errorf("failed to create list: %v", err)
     }
     return listID, nil
+}
+
+func (s *service) GetUserLists(userID string) ([]List, error) {
+    rows, err := s.db.Query(`
+        SELECT id, name, description, tags, difficulty, estimated_time, notes, created_at
+        FROM lists
+        WHERE user_id = $1
+        ORDER BY created_at DESC
+    `, userID)
+    if err != nil {
+        return nil, fmt.Errorf("failed to fetch user lists: %v", err)
+    }
+    defer rows.Close()
+
+    var lists []List
+    for rows.Next() {
+        var list List
+        err := rows.Scan(&list.ID, &list.Name, &list.Description, &list.Tags, &list.Difficulty, &list.EstimatedTime, &list.Notes, &list.CreatedAt)
+        if err != nil {
+            return nil, fmt.Errorf("failed to scan list: %v", err)
+        }
+        lists = append(lists, list)
+    }
+
+    if err = rows.Err(); err != nil {
+        return nil, fmt.Errorf("error iterating over lists: %v", err)
+    }
+
+    return lists, nil
 }
 
 func (s *service) UserExists(userID string) (bool, error) {
@@ -299,6 +317,36 @@ func (s *service) EnsureUserExists(userID string) error {
     return nil
 }
 
+func (s *service) GetListItems(listID int) ([]ListItem, error) {
+    rows, err := s.db.Query(`
+        SELECT li.id, li.problem_id, lp.title, lp.difficulty, lp.acceptance_rate, lp.is_premium, lp.url, li.added_at, li.completed
+        FROM list_items li
+        JOIN leetcode_problems lp ON li.problem_id = lp.frontend_id
+        WHERE li.list_id = $1
+        ORDER BY li.id ASC
+    `, listID)
+    if err != nil {
+        return nil, err
+    }
+    defer rows.Close()
+
+    var items []ListItem
+    for rows.Next() {
+        var li ListItem
+        err := rows.Scan(&li.ID, &li.ProblemID, &li.ProblemTitle, &li.ProblemDifficulty, &li.AcceptanceRate, &li.IsPremium, &li.URL, &li.AddedAt, &li.Completed)
+        if err != nil {
+            return nil, err
+        }
+        li.ListID = listID
+        items = append(items, li)
+    }
+    return items, nil
+}
+
+func (s *service) UpdateProblemCompletionStatus(listItemID int, completed bool) error {
+    _, err := s.db.Exec("UPDATE list_items SET completed = $1 WHERE id = $2", completed, listItemID)
+    return err
+}
 
 //for pagination
 func (s *service) GetLeetCodeProblems(page, pageSize int) ([]leetcode.Problem, int, error) {

@@ -21,6 +21,7 @@ func RegisterRoutes(r *mux.Router, s *Server, jwtMiddleware func(http.Handler) h
     r.HandleFunc("/invalidate-leetcode-cache", s.InvalidateLeetCodeCacheHandler).Methods("POST")
     //Lists
     r.Handle("/lists", jwtMiddleware(auth.UserIDMiddleware(http.HandlerFunc(s.CreateListHandler)))).Methods("POST")
+    r.Handle("/getlists", jwtMiddleware(auth.UserIDMiddleware(http.HandlerFunc(s.GetUserListsHandler)))).Methods("GET")
     r.Handle("/lists/{id}/items", jwtMiddleware(auth.UserIDMiddleware(http.HandlerFunc(s.GetListItemsHandler)))).Methods("GET")
     r.HandleFunc("/leetcode-problems", s.GetLeetCodeProblemsHandler).Methods("GET")
     r.HandleFunc("/problems/search", s.SearchProblemsHandler).Methods("GET")
@@ -29,4 +30,5 @@ func RegisterRoutes(r *mux.Router, s *Server, jwtMiddleware func(http.Handler) h
     r.Handle("/lists/{id}", jwtMiddleware(auth.UserIDMiddleware(http.HandlerFunc(s.DeleteListHandler)))).Methods("DELETE")
     //Remove problem from list
     r.Handle("/lists/remove-problem", jwtMiddleware(auth.UserIDMiddleware(http.HandlerFunc(s.RemoveProblemFromListHandler)))).Methods("POST")
+    r.HandleFunc("/list-items/{id}/completion", s.UpdateProblemCompletionStatusHandler).Methods("PUT")
 }

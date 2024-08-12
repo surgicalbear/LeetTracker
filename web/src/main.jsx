@@ -3,8 +3,6 @@ import ReactDOM from 'react-dom/client'
 import { BrowserRouter } from "react-router-dom"
 import { Auth0ProviderWithNavigate } from "./components/auth/Auth0ProviderWithNavigate"
 import App from './App'
-//import 'bootstrap/dist/css/bootstrap.css'
-//import './index.css'
 
 
 ReactDOM.createRoot(document.getElementById('root')).render(

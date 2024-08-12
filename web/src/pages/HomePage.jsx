@@ -2,6 +2,7 @@ import { AppShell, Burger, Group, Button, Space, Center, UnstyledButton, ThemeIc
 import { useDisclosure } from '@mantine/hooks';
 import { MantineLogo } from '@mantinex/mantine-logo';
 import classes from './styles/HomePage.module.css';
+import classes2 from './styles/NotFoundTitle.module.css'
 import { useAuth0 } from "@auth0/auth0-react";
 import { ColorSchemeToggle } from '../ColorSchemeTheme/ColorSchemeToggle';
 import { IconLogin2 } from '@tabler/icons-react';
@@ -48,12 +49,14 @@ export function HomePage() {
 
       <AppShell.Main>
           <Space h="xl" />
-          <Title order={3} size="h1" ta="center" c="#69ace2">LeetTracker</Title>
+          <Title className={classes2.title}>Welcome to LeetTracker</Title>
           <Space h="xl"/>
-          <Text size="xl" ta="center">Create and share LeetCode problem sets all while tracking your progress.</Text>
+          <Text c="dimmed" size="xl" ta="center" className={classes.description}>
+            Create and share LeetCode problem sets all while tracking your progress.
+          </Text>
           <Space h="xl"/>
           <Center>
-            {!isAuthenticated && <Button variant="light" className={classes.control} onClick={() => loginWithRedirect({})}>Get Started</Button>}
+            {!isAuthenticated && <Button variant="subtle" size="l" onClick={() => loginWithRedirect({})}>Get Started</Button>}
           </Center>
       </AppShell.Main>
     </AppShell>

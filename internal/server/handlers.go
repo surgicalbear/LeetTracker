@@ -157,7 +157,7 @@ func (s *Server) GetListItemsHandler(w http.ResponseWriter, r *http.Request) {
 func (s *Server) CreateListHandler(w http.ResponseWriter, r *http.Request) {
     userID := r.Context().Value(auth.UserIDKey).(string)
     
-    //create user if non existent
+    // Create user if non-existent
     err := s.db.EnsureUserExists(userID)
     if err != nil {
         log.Printf("Error ensuring user exists: %v", err)
@@ -165,15 +165,16 @@ func (s *Server) CreateListHandler(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    var req struct {
-        Name string `json:"name"`
-    }
-    if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+    var list database.List
+    if err := json.NewDecoder(r.Body).Decode(&list); err != nil {
         http.Error(w, err.Error(), http.StatusBadRequest)
         return
     }
 
-    listID, err := s.db.CreateList(userID, req.Name)
+    // Set the UserID field
+    list.UserID = userID
+
+    listID, err := s.db.CreateList(userID, &list)
     if err != nil {
         log.Printf("Error creating list: %v", err)
         http.Error(w, "Failed to create list", http.StatusInternalServerError)
@@ -181,6 +182,20 @@ func (s *Server) CreateListHandler(w http.ResponseWriter, r *http.Request) {
     }
 
     json.NewEncoder(w).Encode(map[string]int{"list_id": listID})
+}
+
+func (s *Server) GetUserListsHandler(w http.ResponseWriter, r *http.Request) {
+    userID := r.Context().Value(auth.UserIDKey).(string)
+
+    lists, err := s.db.GetUserLists(userID)
+    if err != nil {
+        log.Printf("Error fetching user lists: %v", err)
+        http.Error(w, "Failed to fetch lists", http.StatusInternalServerError)
+        return
+    }
+
+    w.Header().Set("Content-Type", "application/json")
+    json.NewEncoder(w).Encode(lists)
 }
 
 func (s *Server) GetLeetCodeProblemsHandler(w http.ResponseWriter, r *http.Request) {
@@ -255,7 +270,7 @@ func (s *Server) AddProblemToListHandler(w http.ResponseWriter, r *http.Request)
         return
     }
 
-    // Check if the list belongs to the user
+    //Check if the list belongs to the user
     list, err := s.db.GetListByID(req.ListID, userID)
     if err != nil {
         log.Printf("Error checking list ownership: %v", err)
@@ -298,6 +313,7 @@ func (s *Server) DeleteListHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) RemoveProblemFromListHandler(w http.ResponseWriter, r *http.Request) {
+    
     userID := r.Context().Value(auth.UserIDKey).(string)
 
     var req struct {
@@ -305,11 +321,12 @@ func (s *Server) RemoveProblemFromListHandler(w http.ResponseWriter, r *http.Req
         ProblemID int `json:"problem_id"`
     }
     if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+        log.Printf("Error decoding JSON: %v", err)
         http.Error(w, err.Error(), http.StatusBadRequest)
         return
     }
 
-    // Check if the list belongs to the user
+    //Check if the list belongs to the user
     list, err := s.db.GetListByID(req.ListID, userID)
     if err != nil {
         log.Printf("Error checking list ownership: %v", err)
@@ -320,11 +337,36 @@ func (s *Server) RemoveProblemFromListHandler(w http.ResponseWriter, r *http.Req
         http.Error(w, "List not found or access denied", http.StatusNotFound)
         return
     }
-
+    
     err = s.db.RemoveProblemFromList(req.ListID, req.ProblemID)
     if err != nil {
         log.Printf("Error removing problem from list: %v", err)
         http.Error(w, "Failed to remove problem from list", http.StatusInternalServerError)
+        return
+    }
+
+    w.WriteHeader(http.StatusOK)
+}
+
+func (s *Server) UpdateProblemCompletionStatusHandler(w http.ResponseWriter, r *http.Request) {
+    vars := mux.Vars(r)
+    listItemID, err := strconv.Atoi(vars["id"])
+    if err != nil {
+        http.Error(w, "Invalid list item ID", http.StatusBadRequest)
+        return
+    }
+
+    var requestBody struct {
+        Completed bool `json:"completed"`
+    }
+    if err := json.NewDecoder(r.Body).Decode(&requestBody); err != nil {
+        http.Error(w, err.Error(), http.StatusBadRequest)
+        return
+    }
+
+    err = s.db.UpdateProblemCompletionStatus(listItemID, requestBody.Completed)
+    if err != nil {
+        http.Error(w, "Failed to update completion status", http.StatusInternalServerError)
         return
     }
 

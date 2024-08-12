@@ -35,7 +35,7 @@ func NewServer() *http.Server {
 
     // remove -- only in dev
     corsWrapper := cors.New(cors.Options{
-        AllowedMethods: []string{"GET", "POST"},
+        AllowedMethods: []string{"GET", "POST", "DELETE", "PUT"},
         AllowedHeaders: []string{"Content-Type", "Origin", "Accept", "*"},
     })
 
