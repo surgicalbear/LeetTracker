@@ -5,7 +5,6 @@ import '@mantine/core/styles.css';
 import 'mantine-react-table/styles.css';
 import {
   flexRender,
-  MRT_GlobalFilterTextInput,
   MRT_TablePagination,
   MRT_ToolbarAlertBanner,
   useMantineReactTable,
@@ -13,7 +12,6 @@ import {
 } from 'mantine-react-table';
 import { Flex, Stack, Table, Title, Checkbox, Anchor, Loader, Text, Badge, Menu, ActionIcon, UnstyledButton, Group, ThemeIcon, Center, Button } from '@mantine/core';
 import { IconDots, IconTrash, IconSquarePlus } from '@tabler/icons-react';
-import classes from './styles/HomePage.module.css'
 import { useNavigate } from 'react-router-dom';
 
 const SetProblems = () => {
@@ -136,6 +134,11 @@ const SetProblems = () => {
         },
       },
       {
+        accessorKey: 'acceptance_rate', 
+        header: 'Acceptance Rate',
+        Cell: ({ cell }) => `${(cell.getValue()).toFixed(1)}%`,
+      },
+      {
         accessorKey: 'url',
         header: 'LeetCode Link',
         Cell: ({ row }) => (
@@ -179,16 +182,14 @@ const SetProblems = () => {
     data: problems,
     enableRowSelection: false,
     enableColumnFilters: false,
-    enableGlobalFilter: true,
     mantineSearchTextInputProps: {
       variant: 'filled',
     },
     initialState: {
-      pagination: { pageSize: 10, pageIndex: 0 },
-      showGlobalFilter: true,
+      pagination: { pageSize: 25, pageIndex: 0 },
     },
     mantinePaginationProps: {
-      rowsPerPageOptions: ['5', '10', '15'],
+      rowsPerPageOptions: ['10', '25', '50', '100'],
     },
     paginationDisplayMode: 'pages',
   });
@@ -207,9 +208,16 @@ const SetProblems = () => {
       {problems.length > 0 ? (
         <>
           <Flex justify="space-between" align="center">
-            <MRT_GlobalFilterTextInput table={table} />
-            <UnstyledButton
-            onClick={() => navigate('/create')}
+            <Button
+              onClick={() => navigate(`/sets`)}
+              variant="subtle"
+              color="blue"
+              mr="md"
+            >
+              Back to Sets
+            </Button>
+          <UnstyledButton
+            onClick={() => navigate(`/sets/${setId}/add-problems`)}
             mt="sm"
           >
           <Group>
@@ -268,7 +276,7 @@ const SetProblems = () => {
         <Center style={{ flexDirection: 'column' }}>
           <Text align="center" mb="md">Hey, you don't have any problems in this set yet.</Text>
           <Button
-            onClick={() => navigate('/create')}
+            onClick={() => navigate(`/sets/${setId}/add-problems`)}
             variant="subtle"
             color="blue"
           >

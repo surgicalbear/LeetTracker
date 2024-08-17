@@ -34,3 +34,14 @@ CREATE TABLE IF NOT EXISTS list_items (
     FOREIGN KEY (list_id) REFERENCES lists(id) ON DELETE CASCADE,
     FOREIGN KEY (problem_id) REFERENCES leetcode_problems(frontend_id)
 );
+
+CREATE TABLE user_progress (
+    id SERIAL PRIMARY KEY,
+    username VARCHAR(255) NOT NULL,
+    date DATE NOT NULL,
+    total_solved INT NOT NULL,
+    easy_solved INT NOT NULL,
+    medium_solved INT NOT NULL,
+    hard_solved INT NOT NULL,
+    UNIQUE(username, date)
+);

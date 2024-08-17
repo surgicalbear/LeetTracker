@@ -24,11 +24,12 @@ func RegisterRoutes(r *mux.Router, s *Server, jwtMiddleware func(http.Handler) h
     r.Handle("/getlists", jwtMiddleware(auth.UserIDMiddleware(http.HandlerFunc(s.GetUserListsHandler)))).Methods("GET")
     r.Handle("/lists/{id}/items", jwtMiddleware(auth.UserIDMiddleware(http.HandlerFunc(s.GetListItemsHandler)))).Methods("GET")
     r.HandleFunc("/leetcode-problems", s.GetLeetCodeProblemsHandler).Methods("GET")
-    r.HandleFunc("/problems/search", s.SearchProblemsHandler).Methods("GET")
     //Add problem to list 
     r.Handle("/lists/add-problem", jwtMiddleware(auth.UserIDMiddleware(http.HandlerFunc(s.AddProblemToListHandler)))).Methods("POST")
     r.Handle("/lists/{id}", jwtMiddleware(auth.UserIDMiddleware(http.HandlerFunc(s.DeleteListHandler)))).Methods("DELETE")
     //Remove problem from list
     r.Handle("/lists/remove-problem", jwtMiddleware(auth.UserIDMiddleware(http.HandlerFunc(s.RemoveProblemFromListHandler)))).Methods("POST")
     r.HandleFunc("/list-items/{id}/completion", s.UpdateProblemCompletionStatusHandler).Methods("PUT")
+    r.HandleFunc("/leetcode-stats", s.LeetCodeStatsProxyHandler).Methods("POST")
+    r.HandleFunc("/user-progress-history", s.GetUserProgressHistoryHandler).Methods("GET")
 }

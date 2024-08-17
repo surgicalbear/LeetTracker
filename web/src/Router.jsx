@@ -8,8 +8,9 @@ import { Loader, Center } from '@mantine/core';
 import { NotFound404 } from './pages/NotFound404'
 import CreateSet from './pages/CreateSet'
 import Sets from './pages/Sets'
-import Problems from './components/tables/LeetCodeProblemsTable'
 import SetProblems from './pages/SetProblems'
+import AddProblems from './pages/AddProblems';
+import Progress from './pages/Progress';
 
 const Router = () => {
   const { isLoading } = useAuth0();
@@ -31,7 +32,8 @@ const Router = () => {
         <Route exact path="/sets" element={<Sets />} />
         <Route exact path="/create" element={<CreateSet />} />
         <Route path="/sets/:setId/problems" element={<SetProblems />} />
-        <Route exact path="/progress" element={<NotFound404 />} />
+        <Route path="/sets/:setId/add-problems" element={<AddProblems />} />
+        <Route exact path="/progress" element={<Progress />} />
       </Route>
       <Route path="*" element={<NotFound404 />} />
     </Routes>

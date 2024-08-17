@@ -21,9 +21,7 @@ type Service interface {
 	Health() map[string]string
 	Close() error
 
-    //Insert problems into DB
     InsertLeetCodeProblems(problems []leetcode.Problem) error
-    //List
     GetListByID(listID int, userID string) (*List, error)
     GetListItems(listID int) ([]ListItem, error)
     CreateList(userID string, list *List) (int, error)
@@ -31,11 +29,12 @@ type Service interface {
     EnsureUserExists(userID string) error
     UserExists(userID string) (bool, error)
     GetLeetCodeProblems(page, pageSize int) ([]leetcode.Problem, int, error)
-    SearchProblems(query string) ([]leetcode.Problem, error)
-    AddProblemToList(listID int, problemID int) error
+    AddProblemsToList(listID int, problemIDs []int) error
     DeleteList(listID int, userID string) error
     RemoveProblemFromList(listID int, problemID int) error
     UpdateProblemCompletionStatus(listItemID int, completed bool) error
+    StoreLeetCodeUserProgress(username string, stats map[string]interface{}) error
+    GetUserProgressHistory(username string) ([]ProgressEntry, error)
 }
 
 type service struct {
@@ -68,6 +67,14 @@ type ListItem struct {
     Completed         bool      `json:"completed"`
 }
 
+type ProgressEntry struct {
+    Date         time.Time `json:"date"`
+    TotalSolved  int       `json:"totalSolved"`
+    EasySolved   int       `json:"easySolved"`
+    MediumSolved int       `json:"mediumSolved"`
+    HardSolved   int       `json:"hardSolved"`
+}
+
 var (
 	database   = os.Getenv("DB_DATABASE")
 	password   = os.Getenv("DB_PASSWORD")
@@ -77,6 +84,7 @@ var (
 	schema     = os.Getenv("DB_SCHEMA")
 	dbInstance *service
 )
+
 
 func New() Service {
 	// Reuse Connection
@@ -348,6 +356,7 @@ func (s *service) UpdateProblemCompletionStatus(listItemID int, completed bool) 
     return err
 }
 
+
 //for pagination
 func (s *service) GetLeetCodeProblems(page, pageSize int) ([]leetcode.Problem, int, error) {
     var totalCount int
@@ -388,53 +397,55 @@ func (s *service) GetLeetCodeProblems(page, pageSize int) ([]leetcode.Problem, i
     return problems, totalCount, nil
 }
 
-func (s *service) SearchProblems(query string) ([]leetcode.Problem, error) {
-    rows, err := s.db.Query(`
-        SELECT frontend_id, title, difficulty, acceptance_rate, is_premium, url
-        FROM leetcode_problems
-        WHERE LOWER(title) LIKE LOWER($1)
-        ORDER BY 
-            CASE 
-                WHEN LOWER(title) = LOWER($2) THEN 1
-                WHEN LOWER(title) LIKE LOWER($2 || '%') THEN 2
-                ELSE 3
-            END,
-            LENGTH(title)
-        LIMIT 10
-    `, "%"+query+"%", query)
+
+func (s *service) AddProblemsToList(listID int, problemIDs []int) error {
+    if len(problemIDs) == 0 {
+        return nil
+    }
+
+    tx, err := s.db.Begin()
     if err != nil {
-        return nil, fmt.Errorf("failed to search problems: %v", err)
+        return fmt.Errorf("failed to begin transaction: %v", err)
     }
-    defer rows.Close()
+    defer tx.Rollback()
 
-    var problems []leetcode.Problem
-    for rows.Next() {
-        var p leetcode.Problem
-        err := rows.Scan(&p.FrontendID, &p.Title, &p.Difficulty, &p.AcceptanceRate, &p.IsPremium, &p.URL)
-        if err != nil {
-            return nil, fmt.Errorf("failed to scan problem: %v", err)
-        }
-        problems = append(problems, p)
+    checkStmt, err := tx.Prepare("SELECT EXISTS(SELECT 1 FROM leetcode_problems WHERE frontend_id = $1)")
+    if err != nil {
+        return fmt.Errorf("failed to prepare check statement: %v", err)
     }
+    defer checkStmt.Close()
 
-    if err = rows.Err(); err != nil {
-        return nil, fmt.Errorf("error iterating over problems: %v", err)
-    }
-
-    return problems, nil
-}
-
-func (s *service) AddProblemToList(listID int, problemID int) error {
-    _, err := s.db.Exec(`
+    insertStmt, err := tx.Prepare(`
         INSERT INTO list_items (list_id, problem_id)
         VALUES ($1, $2)
         ON CONFLICT (list_id, problem_id) DO NOTHING
-    `, listID, problemID)
+    `)
     if err != nil {
-        return fmt.Errorf("failed to add problem to list: %v", err)
+        return fmt.Errorf("failed to prepare insert statement: %v", err)
     }
+    defer insertStmt.Close()
+
+    for _, problemID := range problemIDs {
+        var exists bool
+        if err := checkStmt.QueryRow(problemID).Scan(&exists); err != nil {
+            return fmt.Errorf("failed to check if problem exists: %v", err)
+        }
+        if !exists {
+            return fmt.Errorf("problem with ID %d does not exist in the database", problemID)
+        }
+
+        if _, err := insertStmt.Exec(listID, problemID); err != nil {
+            return fmt.Errorf("failed to add problem %d to list: %v", problemID, err)
+        }
+    }
+
+    if err := tx.Commit(); err != nil {
+        return fmt.Errorf("failed to commit transaction: %v", err)
+    }
+
     return nil
 }
+
 
 func (s *service) DeleteList(listID int, userID string) error {
     result, err := s.db.Exec(`
@@ -475,3 +486,75 @@ func (s *service) RemoveProblemFromList(listID int, problemID int) error {
     
     return nil
 }
+
+
+func (s *service) StoreLeetCodeUserProgress(username string, stats map[string]interface{}) error {
+    submitStats, ok := stats["submitStats"].(map[string]interface{})
+    if !ok {
+        return fmt.Errorf("invalid stats structure: submitStats not found")
+    }
+    
+    acSubmissionNum, ok := submitStats["acSubmissionNum"].([]interface{})
+    if !ok {
+        return fmt.Errorf("invalid stats structure: acSubmissionNum not found")
+    }
+
+    var totalSolved, easySolved, mediumSolved, hardSolved int
+    for _, v := range acSubmissionNum {
+        stat := v.(map[string]interface{})
+        difficulty := stat["difficulty"].(string)
+        count := int(stat["count"].(float64))
+        switch difficulty {
+        case "All":
+            totalSolved = count
+        case "Easy":
+            easySolved = count
+        case "Medium":
+            mediumSolved = count
+        case "Hard":
+            hardSolved = count
+        }
+    }
+
+    _, err := s.db.Exec(`
+        INSERT INTO user_progress (username, date, total_solved, easy_solved, medium_solved, hard_solved)
+        VALUES ($1, CURRENT_DATE, $2, $3, $4, $5)
+        ON CONFLICT (username, date) DO UPDATE
+        SET total_solved = $2, easy_solved = $3, medium_solved = $4, hard_solved = $5
+    `, username, totalSolved, easySolved, mediumSolved, hardSolved)
+    if err != nil {
+        return fmt.Errorf("failed to store LeetCode user progress: %v", err)
+    }
+    return nil
+}
+
+func (s *service) GetUserProgressHistory(username string) ([]ProgressEntry, error) {
+    rows, err := s.db.Query(`
+        SELECT date, total_solved, easy_solved, medium_solved, hard_solved
+        FROM user_progress
+        WHERE username = $1
+        ORDER BY date ASC
+    `, username)
+    if err != nil {
+        return nil, fmt.Errorf("failed to query user progress history: %v", err)
+    }
+    defer rows.Close()
+
+    var history []ProgressEntry
+    for rows.Next() {
+        var entry ProgressEntry
+        err := rows.Scan(&entry.Date, &entry.TotalSolved, &entry.EasySolved, &entry.MediumSolved, &entry.HardSolved)
+        if err != nil {
+            return nil, fmt.Errorf("failed to scan progress entry: %v", err)
+        }
+        history = append(history, entry)
+    }
+
+    if err = rows.Err(); err != nil {
+        return nil, fmt.Errorf("error iterating over progress entries: %v", err)
+    }
+
+    return history, nil
+}
+
+

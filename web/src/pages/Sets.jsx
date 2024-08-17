@@ -3,7 +3,6 @@ import { withAuth0 } from "@auth0/auth0-react";
 import { Text, Button, Container, Title, Card, Badge, ActionIcon, Flex, Center, Modal } from '@mantine/core';
 import { IconTrash } from '@tabler/icons-react';
 import { useNavigate } from 'react-router-dom';
-import LeetCodeProblemsTable from '../components/tables/LeetCodeProblemsTable'
 
 const getDifficultyColor = (difficulty) => {
   switch(difficulty.toLowerCase()) {

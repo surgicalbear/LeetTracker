@@ -9,6 +9,8 @@ import (
     "LeetTracker/auth"
     "log"
     "strconv"
+    "io/ioutil"
+    "bytes"
 )
 
 type Product struct {
@@ -240,41 +242,30 @@ func (s *Server) GetLeetCodeProblemsHandler(w http.ResponseWriter, r *http.Reque
     json.NewEncoder(w).Encode(response)
 }
 
-func (s *Server) SearchProblemsHandler(w http.ResponseWriter, r *http.Request) {
-    query := r.URL.Query().Get("q")
-    if query == "" {
-        http.Error(w, "Search query is required", http.StatusBadRequest)
-        return
-    }
-
-    problems, err := s.db.SearchProblems(query)
-    if err != nil {
-        log.Printf("Error searching problems: %v", err)
-        http.Error(w, "Failed to search problems", http.StatusInternalServerError)
-        return
-    }
-
-    w.Header().Set("Content-Type", "application/json")
-    json.NewEncoder(w).Encode(problems)
-}
 
 func (s *Server) AddProblemToListHandler(w http.ResponseWriter, r *http.Request) {
     userID := r.Context().Value(auth.UserIDKey).(string)
+    log.Printf("Received request to add problems to list. UserID: %s", userID)
 
     var req struct {
-        ListID    int `json:"list_id"`
-        ProblemID int `json:"problem_id"`
+        ListID     int   `json:"list_id"`
+        ProblemIDs []int `json:"problem_ids"`
     }
     if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
         http.Error(w, err.Error(), http.StatusBadRequest)
         return
     }
+    log.Printf("Request data: ListID: %d, ProblemIDs: %v", req.ListID, req.ProblemIDs)
+    if req.ListID == 0 || len(req.ProblemIDs) == 0 {
+        log.Printf("Invalid ListID or empty ProblemIDs")
+        http.Error(w, "Invalid list ID or empty problem IDs", http.StatusBadRequest)
+        return
+    }
 
-    //Check if the list belongs to the user
     list, err := s.db.GetListByID(req.ListID, userID)
     if err != nil {
         log.Printf("Error checking list ownership: %v", err)
-        http.Error(w, "Failed to add problem to list", http.StatusInternalServerError)
+        http.Error(w, "Failed to add problems to list", http.StatusInternalServerError)
         return
     }
     if list == nil {
@@ -282,10 +273,10 @@ func (s *Server) AddProblemToListHandler(w http.ResponseWriter, r *http.Request)
         return
     }
 
-    err = s.db.AddProblemToList(req.ListID, req.ProblemID)
+    err = s.db.AddProblemsToList(req.ListID, req.ProblemIDs)
     if err != nil {
-        log.Printf("Error adding problem to list: %v", err)
-        http.Error(w, "Failed to add problem to list", http.StatusInternalServerError)
+        log.Printf("Error adding problems to list: %v", err)
+        http.Error(w, "Failed to add some problems to list", http.StatusInternalServerError)
         return
     }
 
@@ -371,4 +362,101 @@ func (s *Server) UpdateProblemCompletionStatusHandler(w http.ResponseWriter, r *
     }
 
     w.WriteHeader(http.StatusOK)
+}
+
+const LEETCODE_API_ENDPOINT = "https://leetcode.com/graphql"
+func (s *Server) LeetCodeStatsProxyHandler(w http.ResponseWriter, r *http.Request) {
+    var requestBody map[string]interface{}
+    if err := json.NewDecoder(r.Body).Decode(&requestBody); err != nil {
+        log.Printf("Error decoding request body: %v", err)
+        http.Error(w, "Invalid request body", http.StatusBadRequest)
+        return
+    }
+
+    jsonData, err := json.Marshal(requestBody)
+    if err != nil {
+        log.Printf("Error marshaling request body: %v", err)
+        http.Error(w, "Failed to marshal request", http.StatusInternalServerError)
+        return
+    }
+
+    req, err := http.NewRequest("POST", LEETCODE_API_ENDPOINT, bytes.NewBuffer(jsonData))
+    if err != nil {
+        log.Printf("Error creating request to LeetCode API: %v", err)
+        http.Error(w, "Failed to create request", http.StatusInternalServerError)
+        return
+    }
+
+    req.Header.Set("Content-Type", "application/json")
+
+    client := &http.Client{}
+    resp, err := client.Do(req)
+    if err != nil {
+        log.Printf("Error sending request to LeetCode API: %v", err)
+        http.Error(w, "Failed to send request to LeetCode", http.StatusInternalServerError)
+        return
+    }
+    defer resp.Body.Close()
+
+    body, err := ioutil.ReadAll(resp.Body)
+    if err != nil {
+        log.Printf("Error reading LeetCode API response: %v", err)
+        http.Error(w, "Failed to read LeetCode response", http.StatusInternalServerError)
+        return
+    }
+
+    var responseData map[string]interface{}
+    if err := json.Unmarshal(body, &responseData); err != nil {
+        log.Printf("Error unmarshaling LeetCode API response: %v", err)
+        http.Error(w, "Failed to parse LeetCode response", http.StatusInternalServerError)
+        return
+    }
+
+    data, ok := responseData["data"].(map[string]interface{})
+    if !ok {
+        log.Printf("Invalid response structure: data not found")
+        http.Error(w, "Invalid response from LeetCode", http.StatusInternalServerError)
+        return
+    }
+
+    matchedUser, ok := data["matchedUser"].(map[string]interface{})
+    if !ok {
+        log.Printf("Invalid response structure: matchedUser not found")
+        http.Error(w, "Invalid response from LeetCode", http.StatusInternalServerError)
+        return
+    }
+
+    username, ok := matchedUser["username"].(string)
+    if !ok {
+        log.Printf("Invalid response structure: username not found")
+        http.Error(w, "Invalid response from LeetCode", http.StatusInternalServerError)
+        return
+    }
+
+    if err := s.db.StoreLeetCodeUserProgress(username, matchedUser); err != nil {
+        log.Printf("Error storing user progress: %v", err)
+    }
+
+    w.Header().Set("Content-Type", "application/json")
+    w.WriteHeader(http.StatusOK)
+    w.Write(body)
+}
+
+
+func (s *Server) GetUserProgressHistoryHandler(w http.ResponseWriter, r *http.Request) {
+    username := r.URL.Query().Get("username")
+    if username == "" {
+        http.Error(w, "Username is required", http.StatusBadRequest)
+        return
+    }
+
+    history, err := s.db.GetUserProgressHistory(username)
+    if err != nil {
+        log.Printf("Error fetching user progress history: %v", err)
+        http.Error(w, "Failed to fetch user progress history", http.StatusInternalServerError)
+        return
+    }
+
+    w.Header().Set("Content-Type", "application/json")
+    json.NewEncoder(w).Encode(history)
 }
