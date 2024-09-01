@@ -152,7 +152,7 @@ const Progress = () => {
         )}
       </Paper>
 
-      {error && <Text color="red">{error}</Text>}
+      {error && <Text c="red">{error}</Text>}
 
       {loading && <Loader />}
 
