@@ -60,8 +60,9 @@ LeetTracker is a full-stack web application designed for developers to efficient
 
 
 ## Demo 💡
-![logindemo](images/login.png)
 ![setsdemo](images/sets.png)
+![setproblems](images/problems.png)
+![addproblems](images/add.png)
 ![createdemo](images/create.png)
 ![progressdemo](images/progress.png)
 
